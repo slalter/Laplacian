@@ -1,0 +1,132 @@
+n=1000;
+a=-5;
+b=5;
+x = linspace(a,b,n);
+[X,Y] = meshgrid(x,x);
+f = @(x) (1-x.^2).^(1/4); %boundary fun
+n = @(x) 1./sqrt(c-4.*log(x)); %known normal function
+u = @(x,y,j) sin(x)+j*sin(y); %value 
+c = -0.1;%see 16
+
+%for doing derivatives symbolically
+syms x y j
+u2 = sin(x)+j*sin(y); 
+n2 = 1./sqrt(c-4*log(x));
+f2 = (1-x.^2).^(1/4);
+
+%testing to make sure we have orthagonality and to find good values of c
+% c seems to range from about -3 to about 3
+% for c = -3:0.2:5
+%     pause(3);
+%     n = @(x) 1./sqrt(c-2*log(x)); %known function of normal vectors
+%     plot(x,n(x),x,f(x));
+% end
+% xrange=linspace(-5,5,1000);
+% plot(xrange,n(xrange),xrange,f(xrange));
+
+%calculating intersection
+syms k
+xint = vpasolve((1-k^2)^(1/4) == 1/sqrt(c-4*log(k)),k,[-5 5]);
+yint = f(xint);
+int = [xint,yint];
+
+%verifying orthagonality
+m1 = subs(diff(f2,x),x,xint);
+m2 = subs(diff(n2,x),x,xint);
+theta = atan(abs((m1-m2)/(1+m1*m2)));
+if(abs(theta-pi/2)>0.0001)
+    disp("warning: orthagonality");
+end
+
+%calculating actual normal vector
+nprime = diff(n2);
+slope = subs(nprime,x,xint);
+V = int + [1,slope];
+normal = V/norm(V);
+
+%differentiate
+Ux = diff(u2,x);
+Uy = diff(u2,y);
+
+
+%substitute intersection values
+Ux = subs(subs(Ux,x,xint),y,yint);
+Uy = subs(subs(Uy,y,yint),x,xint);
+
+
+%Find constant j such that [Ux,Uy] dot norm = 0
+jguess = 0.4;
+closestj = jguess;
+eps = 0.00000001;
+dot = abs(double(subs(Ux,j,closestj)*normal(1)+subs(Uy,j,closestj)*normal(2)));
+while(dot>=eps)
+  closestj=-abs(double(subs(Ux,j,closestj)*normal(1)+subs(Uy,j,closestj)*normal(2)))/(double(subs(Uy, j,1)/double(subs(Ux,j,1))))+closestj;
+  dot = abs(double(subs(Ux,j,closestj)*normal(1)+subs(Uy,j,closestj)*normal(2)));
+end
+Uy = subs(Uy,j,closestj);
+Ux = subs(Ux,j,closestj);
+
+ughost = [];
+err = [];
+test1 = [];
+alap = [];
+delta = 3;
+while(delta>.00001)
+    %create meshgrid based around delta/2 distance from target edge point
+    center = int - [0,delta/2];
+    yt = linspace(center(2)-delta,center(2)+delta,3);
+    xt = linspace(center(1)-delta,center(1)+delta,3);
+    [XT,YT] = meshgrid(xt,yt);
+    x2 = linspace(a,b,1000);
+    %pause(.5);
+    plot(XT,YT,x2,n(x2),x2,f(x2));
+
+
+    %gather function values at meshgrid points
+    U = u(XT,YT,closestj); %verified that this is accurate
+
+    
+    %save u12 for error
+    u12 = double(U(1,2));
+
+    %calculate ughost from double central difference formulas
+    U(1,2) = (Uy/Ux)*(U(2,1)-U(2,3))+U(3,2);
+    
+
+ 
+    
+ 
+
+    %measure how close we are to actual fn value outside of region
+   
+    err = [err; u12-double(U(1,2))];
+
+    %test1: 1st difference normal, 3ptx2pt
+    test1 = [test1;double(Ux*(U(2,2)-U(1,2))/(delta)+Uy*(U(2,1)-U(2,3))/(2*delta))];
+
+    %test2: approximate laplacian
+    alap = [alap;-double((double(U(1,2))-4*double(U(2,2))+double(U(3,2))+double(U(2,1))+double(U(2,3)))/delta^2)];
+    
+    %increment delta
+    delta = delta/2;
+end
+
+
+order = log(err(1:end-1)./err(2:end))/log(2)
+order1 = log(test1(1:end-1)./test1(2:end))/log(2)
+
+%test2: compare lap to alap: approximate laplacian of u @ x1 using 3 point central difference
+Uxx = diff(diff(u2,x), x);
+Uyy = diff(diff(u2,y), y);
+lap = double(subs(subs(subs(Uxx, x, xt(2)),j,closestj),y,yt(2)) + subs(subs(subs(Uyy, y, yt(2)),j,closestj),x,xt(2)));
+disp("alap - lap =" + string(double(alap(length(alap)-1)-lap)));
+disp("with order:");
+order2 = log(alap(1:end-1)./alap(2:end))/log(2)
+
+
+%testing to find bug. Conclusion: Uxx is off. But how can that be if U(1,2)
+%converges to u(1,2)?
+actualuyy= subs(subs(subs(Uxx, y, yt(2)),j,closestj),x,xt(2))
+appxuyy=double((U(2,1)-2*U(2,2)+U(2,3))/(delta*2)^2)
+actualuxx= subs(subs(subs(Uyy, x, xt(2)),j,closestj),y,yt(2))
+appxuxx=double((U(1,2)-2*U(2,2)+U(3,2))/(delta*2)^2)
